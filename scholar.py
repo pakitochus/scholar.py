@@ -166,23 +166,25 @@ import os
 import re
 import sys
 import warnings
+import ssl
 
 try:
     # Try importing for Python 3
     # pylint: disable-msg=F0401
     # pylint: disable-msg=E0611
-    from urllib.request import HTTPCookieProcessor, Request, build_opener
+    from urllib.request import HTTPCookieProcessor, Request, build_opener, HTTPSHandler
     from urllib.parse import quote, unquote
     from http.cookiejar import MozillaCookieJar
 except ImportError:
     # Fallback for Python 2
-    from urllib2 import Request, build_opener, HTTPCookieProcessor
+    from urllib2 import Request, build_opener, HTTPCookieProcessor, HTTPSHandler
     from urllib import quote, unquote
     from cookielib import MozillaCookieJar
 
 # Import BeautifulSoup -- try 4 first, fall back to older
 try:
     from bs4 import BeautifulSoup
+    from bs4 import NavigableString, Tag
 except ImportError:
     try:
         from BeautifulSoup import BeautifulSoup
@@ -469,10 +471,11 @@ class ScholarArticleParser(object):
                 # We can also extract the cluster ID from the versions
                 # URL. Note that we know that the string contains "?",
                 # from the above if-statement.
-                args = self.article['url_citations'].split('?', 1)[1]
-                for arg in args.split('&'):
-                    if arg.startswith('cites='):
-                        self.article['cluster_id'] = arg[6:]
+                if self.article['cluster_id'] is None:
+                    args = self.article['url_citations'].split('?', 1)[1]
+                    for arg in args.split('&'):
+                        if arg.startswith('cites='):
+                            self.article['cluster_id'] = arg[6:]
 
             if tag.get('href').startswith('/scholar?cluster'):
                 if hasattr(tag, 'string') and tag.string.startswith('All '):
@@ -480,9 +483,15 @@ class ScholarArticleParser(object):
                         self._as_int(tag.string.split()[1])
                 self.article['url_versions'] = \
                     self._strip_url_arg('num', self._path2url(tag.get('href')))
+                    
+                if self.article['cluster_id'] is None:
+                    args = self.article['url_versions'].split('?', 1)[1]
+                    for arg in args.split('&'):
+                        if arg.startswith('cluster='):
+                            self.article['cluster_id'] = arg[8:]
 
             if tag.getText().startswith('Import'):
-                self.article['url_citation'] = self._path2url(tag.get('href'))
+                self.article['url_citation'] = tag.get('href')
 
 
     @staticmethod
@@ -512,7 +521,7 @@ class ScholarArticleParser(object):
 
     def _path2url(self, path):
         """Helper, returns full URL in case path isn't one."""
-        if path.startswith('http://'):
+        if path.startswith('http://') or path.startswith('https://'):
             return path
         if not path.startswith('/'):
             path = '/' + path
@@ -556,10 +565,9 @@ class ScholarArticleParser120201(ScholarArticleParser):
                 self._parse_links(tag)
 
 
-class ScholarArticleParser120726(ScholarArticleParser):
+class ScholarArticleParser190528(ScholarArticleParser):
     """
-    This class reflects update to the Scholar results page layout that
-    Google made 07/26/12.
+    Customized update on 19/05/28
     """
     def _parse_article(self, div):
         self.article = ScholarArticle()
@@ -568,8 +576,11 @@ class ScholarArticleParser120726(ScholarArticleParser):
             if not hasattr(tag, 'name'):
                 continue
             if str(tag).lower().find('.pdf'):
-                if tag.find('div', {'class': 'gs_ttss'}):
-                    self._parse_links(tag.find('div', {'class': 'gs_ttss'}))
+                if isinstance(tag, NavigableString):
+                    continue
+                if isinstance(tag, Tag):
+                    if tag.find('div', {'class': 'gs_or_ggsm'}):
+                        self._parse_links(tag.find('div', {'class': 'gs_or_ggsm'}))
 
             if tag.name == 'div' and self._tag_has_class(tag, 'gs_ri'):
                 # There are (at least) two formats here. In the first
@@ -620,6 +631,11 @@ class ScholarArticleParser120726(ScholarArticleParser):
                         raw_text = ''.join(raw_text)
                         raw_text = raw_text.replace('\n', '')
                         self.article['excerpt'] = raw_text
+
+            if self.article['url_pdf'] is None and tag.name == 'div' and self._tag_has_class(tag, 'gs_ggs') \
+                    and tag.div and tag.div.div and tag.div.div.a and tag.div.div.a.span \
+                    and tag.div.div.a.span.get_text() == "[PDF]":
+                self.article['url_pdf'] = self._path2url(tag.div.div.a['href'])
 
 
 class ScholarQuery(object):
@@ -927,9 +943,9 @@ class ScholarQuerier(object):
     # Older URLs:
     # ScholarConf.SCHOLAR_SITE + '/scholar?q=%s&hl=en&btnG=Search&as_sdt=2001&as_sdtp=on
 
-    class Parser(ScholarArticleParser120726):
+    class Parser(ScholarArticleParser190528):
         def __init__(self, querier):
-            ScholarArticleParser120726.__init__(self)
+            ScholarArticleParser190528.__init__(self)
             self.querier = querier
 
         def handle_num_results(self, num_results):
@@ -955,7 +971,13 @@ class ScholarQuerier(object):
                 ScholarUtils.log('warn', 'could not load cookies file: %s' % msg)
                 self.cjar = MozillaCookieJar() # Just to be safe
 
-        self.opener = build_opener(HTTPCookieProcessor(self.cjar))
+        # Fix from: https://stackoverflow.com/questions/19268548/python-ignore-certificate-validation-urllib2
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+
+        self.opener = build_opener(
+            HTTPSHandler(context=ctx), HTTPCookieProcessor(self.cjar))
         self.settings = None # Last settings object, if any
 
     def apply_settings(self, settings):
@@ -982,7 +1004,7 @@ class ScholarQuerier(object):
         # to Google.
         soup = SoupKitchen.make_soup(html)
 
-        tag = soup.find(name='form', attrs={'id': 'gs_settings_form'})
+        tag = soup.find(name='form', attrs={'id': 'gs_bdy_frm'})
         if tag is None:
             ScholarUtils.log('info', 'parsing settings failed: no form')
             return False
@@ -1142,8 +1164,11 @@ def csv(querier, header=False, sep='|'):
 def citation_export(querier):
     articles = querier.articles
     for art in articles:
-        print(art.as_citation() + '\n')
+        print(art.as_citation() + "\n".encode('utf8'))
 
+def citation_export_str(querier):
+    articles = querier.articles
+    return '\n'.join([str(art.as_citation()) for art in articles])
 
 def main():
     usage = """scholar.py [options] <query string>
