@@ -1,6 +1,10 @@
 scholar.py
 ==========
 
+**Note**: this is a modified version of the original `scholar.py' with some bug fixes and dividing the 
+original script into a library (for imports) and a main.py for executing in command line, so that
+the scholar library can be imported into other scripts and used inside python. 
+
 scholar.py is a Python module that implements a querier and parser for Google Scholar's output. Its classes can be used independently, but it can also be invoked as a command-line tool.
 
 The script used to live at http://icir.org/christian/scholar.html, and I've moved it here so I can more easily manage the various patches and suggestions I'm receiving for scholar.py. Thanks guys, for all your interest! If you'd like to get in touch, email me at christian@icir.org or ping me [on Twitter](http://twitter.com/ckreibich).
@@ -30,11 +34,11 @@ to add such features.
 Examples
 --------
 
-Try scholar.py --help for all available options. Note, the command line arguments changed considerably in version 2.0! A few examples:
+Try main.py --help for all available options. Note, the command line arguments changed considerably in version 2.0! A few examples:
 
 Retrieve one article written by Einstein on quantum theory:
 
-    $ scholar.py -c 1 --author "albert einstein" --phrase "quantum theory"
+    $ main.py -c 1 --author "albert einstein" --phrase "quantum theory"
              Title On the quantum theory of radiation
                URL http://icole.mut-es.ac.ir/downloads/Sci_Sec/W1/Einstein%201917.pdf
               Year 1917
@@ -49,7 +53,7 @@ Retrieve one article written by Einstein on quantum theory:
 
 Note the cluster ID in the above. Using this ID, you can directly access the cluster of articles Google Scholar has already determined to be variants of the same paper. So, let's see the versions:
 
-    $ scholar.py -C 17749203648027613321
+    $ main.py -C 17749203648027613321
              Title On the quantum theory of radiation
                URL http://icole.mut-es.ac.ir/downloads/Sci_Sec/W1/Einstein%201917.pdf
          Citations 184
@@ -76,7 +80,7 @@ Note the cluster ID in the above. Using this ID, you can directly access the clu
 
 Let's retrieve a BibTeX entry for that quantum theory paper. The best BibTeX often seems to be the one linked from search results, not those in the article cluster, so let's do a search again:
 
-    $ scholar.py -c 1 --author "albert einstein" --phrase "quantum theory" --citation bt
+    $ main.py -c 1 --author "albert einstein" --phrase "quantum theory" --citation bt
     @article{einstein1917quantum,
       title={On the quantum theory of radiation},
       author={Einstein, Albert},
@@ -88,11 +92,11 @@ Let's retrieve a BibTeX entry for that quantum theory paper. The best BibTeX oft
 
 Report the total number of articles Google Scholar has for Einstein:
 
-    $ scholar.py --txt-globals --author "albert einstein" | grep '\[G\]' | grep Results
+    $ main.py --txt-globals --author "albert einstein" | grep '\[G\]' | grep Results
     [G]    Results 4190
 
 
 License
 -------
 
-scholar.py is using the standard [BSD license](http://opensource.org/licenses/BSD-2-Clause).
+main.py is using the standard [BSD license](http://opensource.org/licenses/BSD-2-Clause).
